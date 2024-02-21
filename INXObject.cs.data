@@ -1,0 +1,56 @@
+using NXOpen.Assemblies;
+using NXOpen.Utilities;
+
+namespace NXOpen;
+
+/// <summary>  Represents an interface from which most NXOpen classes inherit  </summary>  
+///  <remarks>  </remarks>  
+public interface INXObject:ITaggedObject
+{
+	/// <summary>  Returns  whether this object is an occurrence or not. </summary>  
+	///  <remarks>  <para>License requirements: None.</para> </remarks>  
+	bool IsOccurrence { get; }
+
+	/// <summary>  Returns  the identifier that would be recorded in a journal for this object. </summary>  
+	///  <remarks>   
+	///     This may not be the same across different releases of the software. <para>License requirements: None.</para> </remarks>  
+	string JournalIdentifier { get; }
+
+	/// <summary>  Returns  the custom name of the object. </summary>  
+	///  <remarks>   <para>License requirements: None.</para> </remarks>  
+	string Name { get; }
+
+	/// <summary>  Returns  the owning component, if this object is an occurrence. </summary>  
+	///  <remarks>  <para>License requirements: None.</para> </remarks>  
+	Component OwningComponent { get; }
+
+	/// <summary>  Returns  the owning part of this object  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	BasePart OwningPart { get; }
+
+	/// <summary>  Returns  the prototype of this object if it is an occurrence. </summary>  
+	///  <remarks>  <para>License requirements: None.</para> </remarks>  
+	INXObject Prototype { get; }
+
+	/// <summary>  Finds the <see cref="T:NXOpen.NXObject">  NXObject  </see> with the given identifier as recorded in a journal. </summary>  
+	///  <remarks>   
+	///     An object may not return the same value as its JournalIdentifier in different versions of  
+	///     the software. However newer versions of the software should find the same object when  
+	///     FindObject is passed older versions of its journal identifier. In general, this method  
+	///     should not be used in handwritten code and exists to support record and playback of journals. 
+	///
+	///     An exception will be thrown if no object can be found with the given journal identifier.  <para>License requirements: None.</para> </remarks>  
+	///  <param name="journalIdentifier"> Journal identifier of the object </param>  
+	/// <returns> </returns> 
+	INXObject FindObject(string journalIdentifier);
+
+	/// <summary>  Prints a representation of this object to the system log file. </summary>  
+	///  <remarks>  
+	///      <para>License requirements: None.</para> </remarks>  
+	void Print();
+
+	/// <summary>  Sets the custom name of the object. </summary>  
+	///  <remarks>  <para>License requirements: None.</para> </remarks>  
+	///  <param name="name"> </param> 
+	void SetName(string name);
+}

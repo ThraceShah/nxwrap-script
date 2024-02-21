@@ -1,0 +1,24 @@
+VERSION 120
+
+EDIT UG_GATEWAY_MAIN_MENUBAR
+
+TOP_MENU
+
+CASCADE_BUTTON NativeWrapTest_MENU
+LABEL NativeWrapTest
+
+END_OF_TOP_MENU
+
+MENU NativeWrapTest_MENU
+
+	BUTTON  NativeWrapTes.Test_Button
+	LABEL   NativeWrapTes
+	ACTIONS NativeWrapTestNE.dll
+
+	BUTTON  NativeWrapTes.Test_Button2
+	LABEL   NativeWrapTes2
+	ACTIONS NativeWrapTest.dll
+
+END_OF_MENU
+
+

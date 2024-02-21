@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TrimMode>copyused</TrimMode>
+    <OutDir>..\publish\application</OutDir>
+    <!-- <PublishAot>true</PublishAot>  -->
+    <!-- Enable DNNE to dynamically load the managed .dll -->
+    <EnableDynamicLoading Condition="'$(PublishAOT)' != 'true'">true</EnableDynamicLoading>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <DefineConstants>$(DefineConstants);AOT</DefineConstants>
+  </PropertyGroup>  <ItemGroup>
+    <PackageReference Include="DNNE" Version="2.*" Condition="'$(PublishAOT)' != 'true'" />
+    <!--<PackageReference Include="Microsoft.CodeDom.Providers.DotNetCompilerPlatform" Version="4.1.0" />-->
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="5.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="../lib/NXOpen.UF.dll" />
+    <Reference Include="../lib/NXOpen.dll" />
+    <!-- <Reference Include="../lib/NXOpen.Base.dll" /> -->
+    <ProjectReference Include="../NXOpen.Base/NXOpen.Base.csproj" />
+  </ItemGroup>
+</Project>

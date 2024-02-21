@@ -1,0 +1,1370 @@
+using System;
+using System.Runtime.InteropServices;
+using System.Security;
+using System.Text;
+using NXOpen.CAE;
+using NXOpen.CAE.FTK;
+using NXOpen.CAE.Xyplot;
+using NXOpen.CAM;
+using NXOpen.Motion;
+using NXOpen.Options;
+using NXOpen.PDM;
+using NXOpen.Preferences;
+using NXOpen.Routing;
+using NXOpen.UserDefinedObjects;
+using NXOpen.Utilities;
+using NXOpen.Validate;
+using NXOpen.VisualReporting;
+
+namespace NXOpen;
+
+/// <summary>  Represents the NX session  </summary>  
+///  <remarks>  </remarks>  
+public class Session : BaseSession
+{
+	/// <summary>  Describes when an automation library should be unloaded 
+	///     from a running session. </summary>  
+	///  <remarks>  To use the enum, implement a static function 
+	///     called GetUnloadOption in your automation program which returns one 
+	///     of these options as an integer. (Note that this function must also 
+	///     have a string argument that is currently not used for anything.) NX 
+	///     will call this method once the automation program has exited to 
+	///     determine when to unload the library.  </remarks>  
+	public enum LibraryUnloadOption
+	{
+		/// <summary>  unload the library 
+		///             as soon as the automation program has completed  </summary>  
+		Immediately = 1,
+		/// <summary>  unload the library 
+		///             from the "Unload Shared Image" dialog  </summary>  
+		Explicitly,
+		/// <summary>  unload the library 
+		///             when the NX session terminates  </summary>  
+		AtTermination
+	}
+
+	/// <summary>  Represents a undo mark. </summary>  
+	///  <remarks>   This is used to rollback to previous states of 
+	///      the model.  </remarks>  
+	public enum UndoMarkId
+	{
+
+	}
+
+	/// <summary>  Indicates the visibility of an undo mark  </summary>  
+	///  <remarks>  </remarks>  
+	public enum MarkVisibility
+	{
+		/// <summary>   </summary>  
+		Visible,
+		/// <summary>   </summary>  
+		Invisible,
+		/// <summary>  Use only in query methods  </summary>  
+		AnyVisibility
+	}
+
+	/// <summary>  Indicates whether project assignment is for item, item revision or dataset  </summary>  
+	///  <remarks>  </remarks>  
+	public enum ProjectAssignmentObjectType
+	{
+		/// <summary>  item </summary>  
+		Part,
+		/// <summary>  item rev </summary>  
+		Partrev,
+		/// <summary>  data set  </summary>  
+		Appdata
+	}
+
+	/// <summary>  Indicates project assignment state  </summary>  
+	///  <remarks>  </remarks>  
+	public enum ProjectAssignmentState
+	{
+		/// <summary>  to remove project from all objects </summary>  
+		None = 10,
+		/// <summary>  to skip project assignment </summary>  
+		Partial,
+		/// <summary>  to assign project to all objects  </summary>  
+		Full
+	}
+
+	/// <summary>  This structure contains data about an undo mark  </summary>  
+	///  <remarks>  </remarks>  
+	[Serializable]
+	public struct UndoMarkData
+	{
+		/// <summary>  ID of the mark  </summary>  
+		///  <remarks>  </remarks>  
+		public UndoMarkId Id;
+
+		/// <summary>  visibility of the mark  </summary>  
+		///  <remarks>  </remarks>  
+		public MarkVisibility Visibility;
+
+		public override string ToString()
+		{
+			StringBuilder stringBuilder = new StringBuilder();
+			stringBuilder.Append("[");
+			stringBuilder.Append("Id=");
+			stringBuilder.Append(Id);
+			stringBuilder.Append(",Visibility=");
+			stringBuilder.Append(Visibility);
+			stringBuilder.Append("]");
+			return stringBuilder.ToString();
+		}
+
+		/// <summary>  Constructor for the UndoMarkData struct. </summary>  
+		///  <remarks>   </remarks>  
+		///
+		/// <param name="Id"> ID of the mark </param>  
+		/// <param name="Visibility"> visibility of the mark </param>  
+		public UndoMarkData(UndoMarkId Id, MarkVisibility Visibility)
+		{
+			this.Id = Id;
+			this.Visibility = Visibility;
+		}
+	}
+
+	/// <summary>  Persistence policies for transient modified parts  </summary>  
+	///  <remarks>  </remarks>  
+	public enum TransientPartPolicy
+	{
+		/// <summary>  Retain transient status when non-retainable mods made  </summary>  
+		RetainTransience,
+		/// <summary>  Remove transient status when non-retainable mods made  </summary>  
+		RemoveTransience
+	}
+
+	private AfuManager afuManager;
+
+	private DexManager dexManager;
+
+	private FTKManager fTKManager;
+
+	private Post post;
+
+	private ResultManager resultManager;
+
+	private CaeSession caeSession;
+
+	private Update updateManager;
+
+	private PartCollection parts;
+
+	private ValidationManager validationManager;
+
+	private ListingWindow listingWindow;
+
+	private DisplayManager displayManager;
+
+	private MathUtils mathUtils;
+
+	private EngineeringFunction engineeringFunction;
+
+	private Measurement measurement;
+
+	private Information information;
+
+	private SessionPreferences preferences;
+
+	private LogFile logFile;
+
+	private CAMSession cAMSession;
+
+	private DesignRuleManager designRuleManager;
+
+	private OptionsManager optionsManager;
+
+	private LicenseManager licenseManager;
+
+	private UserDefinedClassManager userDefinedClassManager;
+
+	private AssembliesUtils assembliesUtils;
+
+	private RequirementUtils requirementUtils;
+
+	private MotionSession motionSession;
+
+	private MotionSimulation motionSimulation;
+
+	private PdmSearchManager pdmSearchManager;
+
+	private XmlComparator xmlComparator;
+
+	private DataManager dataManager;
+
+	private VisualReportManager visualReportManager;
+
+	private XYPlotManager xYPlotManager;
+
+	private PdmSession pdmSession;
+
+
+	/// <summary>  Returns the <see cref="T:NXOpen.CAE.AfuManager"> CAE.AfuManager </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public AfuManager AfuManager => afuManager;
+
+	/// <summary>  Returns the <see cref="P:NXOpen.Session.DexManager"> DexManager </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public DexManager DexManager => dexManager;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.CAE.FTK.FTKManager"> CAE.FTK.FTKManager </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public FTKManager FTKManager => fTKManager;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.CAE.Post"> CAE.Post </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public Post Post => post;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.CAE.ResultManager"> NXOpen.CAE.ResultManager </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public ResultManager ResultManager => resultManager;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.CAE.CaeSession"> NXOpen.CAE.CaeSession </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public CaeSession CaeSession => caeSession;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.Update"> Update </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public Update UpdateManager => updateManager;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.PartCollection"> PartCollection </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public PartCollection Parts => parts;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.Validate.ValidationManager"> Validate.ValidationManager </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public ValidationManager ValidationManager => validationManager;
+
+	/// <summary>  Returns the <see cref="P:NXOpen.Session.ListingWindow"> ListingWindow </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public ListingWindow ListingWindow => listingWindow;
+
+	/// <summary>  Returns the <see cref="P:NXOpen.Session.DisplayManager"> DisplayManager </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public DisplayManager DisplayManager => displayManager;
+
+	/// <summary>  Returns the <see cref="P:NXOpen.Session.MathUtils"> MathUtils </see> instance belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public MathUtils MathUtils => mathUtils;
+
+	/// <summary>  Returns the <see cref="P:NXOpen.Session.EngineeringFunction"> EngineeringFunction </see> instance belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public EngineeringFunction EngineeringFunction => engineeringFunction;
+
+	/// <summary>  Returns the <see cref="P:NXOpen.Session.Measurement"> Measurement </see> instance belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public Measurement Measurement => measurement;
+
+	/// <summary>  Returns the <see cref="P:NXOpen.Session.Information"> Information </see> instance belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public Information Information => information;
+
+	/// <summary>  Returns the preferences instance for the session  </summary>  
+	///  <remarks>  </remarks>  
+	public SessionPreferences Preferences => preferences;
+
+	/// <summary>  Returns the log file instance for this session  </summary>  
+	///  <remarks>  </remarks>  
+	public LogFile LogFile => logFile;
+
+	/// <summary>  Returns the CAM session  </summary>  
+	///  <remarks>  </remarks>  
+	public CAMSession CAMSession => cAMSession;
+
+	/// <summary>  Returns the DesignRule  </summary>  
+	///  <remarks>  </remarks>  
+	public DesignRuleManager DesignRuleManager => designRuleManager;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.Options.OptionsManager"> Options.OptionsManager </see> instance belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public OptionsManager OptionsManager => optionsManager;
+
+	/// <summary>  Returns the <see cref="P:NXOpen.Session.LicenseManager"> LicenseManager </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public LicenseManager LicenseManager => licenseManager;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.UserDefinedObjects.UserDefinedClassManager"> UserDefinedObjects.UserDefinedClassManager </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public UserDefinedClassManager UserDefinedClassManager => userDefinedClassManager;
+
+	/// <summary>  Returns the <see cref="P:NXOpen.Session.AssembliesUtils"> AssembliesUtils </see> instance belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public AssembliesUtils AssembliesUtils => assembliesUtils;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.PDM.RequirementUtils"> PDM.RequirementUtils </see> instance belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public RequirementUtils RequirementUtils => requirementUtils;
+
+	/// <summary>  Returns the Motion session  </summary>  
+	///  <remarks>  </remarks>  
+	public MotionSession MotionSession => motionSession;
+
+	/// <summary>  Returns the Motion session  </summary>  
+	///  <remarks>  </remarks>  
+	public MotionSimulation MotionSimulation => motionSimulation;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.PDM.PdmSearchManager"> PDM.PdmSearchManager </see> instance belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public PdmSearchManager PdmSearchManager => pdmSearchManager;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.Validate.XmlComparator"> Validate.XmlComparator </see> instance belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public XmlComparator XmlComparator => xmlComparator;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.CAE.FTK.DataManager"> CAE.FTK.DataManager </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public DataManager DataManager => dataManager;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.VisualReporting.VisualReportManager"> VisualReporting.VisualReportManager </see> instance belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public VisualReportManager VisualReportManager => visualReportManager;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.CAE.Xyplot.XYPlotManager"> CAE.Xyplot.XYPlotManager </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public XYPlotManager XYPlotManager => xYPlotManager;
+
+	/// <summary>  Returns the <see cref="T:NXOpen.PDM.PdmSession"> PDM.PdmSession </see> belonging to this session  </summary>  
+	///  <remarks>  </remarks>  
+	public PdmSession PdmSession => pdmSession;
+
+	/// <summary>  Returns  the active sketch  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	public Sketch ActiveSketch
+	{
+		get
+		{
+			JAM.StartCall();
+			Tag sketch;
+			int num = JA_SESSION_get_active_sketch(out sketch);
+			if (num != 0)
+			{
+				throw NXException.Create(num);
+			}
+			return NXObjectManager.Get<Sketch>(sketch);
+		}
+	}
+
+	/// <summary>  Returns  the full path to the journal that is currently being 
+	///     executed  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	public string ExecutingJournal
+	{
+		get
+		{
+			JAM.StartCall();
+			IntPtr journal;
+			int num = JA_SESSION_get_executing_journal(out journal);
+			if (num != 0)
+			{
+				throw NXException.Create(num);
+			}
+			return JAM.ToStringFromLocale(journal);
+		}
+	}
+
+	/// <summary>  Returns  true if and only if NX is in a task environment  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	public bool IsInTaskEnvironment
+	{
+		get
+		{
+			JAM.StartCall();
+			bool inTaskEnv;
+			int num = JA_SESSION_get_is_in_task_environment(out inTaskEnv);
+			if (num != 0)
+			{
+				throw NXException.Create(num);
+			}
+			return inTaskEnv;
+		}
+	}
+
+	/// <summary>  Returns  the newest visible undo mark  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	public UndoMarkId NewestVisibleUndoMark
+	{
+		get
+		{
+			JAM.StartCall();
+			UndoMarkId id;
+			int num = JA_SESSION_get_newest_visible_undo_mark(out id);
+			if (num != 0)
+			{
+				throw NXException.Create(num);
+			}
+			return id;
+		}
+	}
+
+	/// <summary>  Returns or sets  the persistence policy for transient parts in the session  </summary>  
+	///  <remarks> <para>License requirements to get this property: None.</para><para>License requirements to set this property: None.</para> </remarks>  
+	public TransientPartPolicy TransientPartPersistencePolicy
+	{
+		get
+		{
+			JAM.StartCall();
+			TransientPartPolicy policy;
+			int num = JA_SESSION_get_transient_part_persistence_policy(out policy);
+			if (num != 0)
+			{
+				throw NXException.Create(num);
+			}
+			return policy;
+		}
+		set
+		{
+			JAM.StartCall();
+			int num = JA_SESSION_set_transient_part_persistence_policy(value);
+			if (num != 0)
+			{
+				throw NXException.Create(num);
+			}
+		}
+	}
+
+	public Session()
+	{
+	}
+
+	public override void initialize()
+	{
+		base.initialize();
+		afuManager = new AfuManager(this);
+		afuManager.initialize();
+		dexManager = new DexManager(this);
+		dexManager.initialize();
+		fTKManager = new FTKManager(this);
+		fTKManager.initialize();
+		post = new Post(this);
+		post.initialize();
+		resultManager = new ResultManager(this);
+		resultManager.initialize();
+		caeSession = new CaeSession(this);
+		caeSession.initialize();
+		updateManager = new Update(this);
+		updateManager.initialize();
+		parts = new PartCollection(this);
+		parts.initialize();
+		validationManager = new ValidationManager(this);
+		validationManager.initialize();
+		listingWindow = new ListingWindow(this);
+		listingWindow.initialize();
+		displayManager = new DisplayManager(this);
+		displayManager.initialize();
+		mathUtils = new MathUtils(this);
+		mathUtils.initialize();
+		engineeringFunction = new EngineeringFunction(this);
+		engineeringFunction.initialize();
+		measurement = new Measurement(this);
+		measurement.initialize();
+		information = new Information(this);
+		information.initialize();
+		preferences = new SessionPreferences(this);
+		preferences.initialize();
+		logFile = new LogFile(this);
+		logFile.initialize();
+		cAMSession = new CAMSession(this);
+		cAMSession.initialize();
+		designRuleManager = new DesignRuleManager(this);
+		designRuleManager.initialize();
+		optionsManager = new OptionsManager(this);
+		optionsManager.initialize();
+		licenseManager = new LicenseManager(this);
+		licenseManager.initialize();
+		userDefinedClassManager = new UserDefinedClassManager(this);
+		userDefinedClassManager.initialize();
+		assembliesUtils = new AssembliesUtils(this);
+		assembliesUtils.initialize();
+		requirementUtils = new RequirementUtils(this);
+		requirementUtils.initialize();
+		motionSession = new MotionSession(this);
+		motionSession.initialize();
+		motionSimulation = new MotionSimulation(this);
+		motionSimulation.initialize();
+		pdmSearchManager = new PdmSearchManager(this);
+		pdmSearchManager.initialize();
+		xmlComparator = new XmlComparator(this);
+		xmlComparator.initialize();
+		dataManager = new DataManager(this);
+		dataManager.initialize();
+		visualReportManager = new VisualReportManager(this);
+		visualReportManager.initialize();
+		xYPlotManager = new XYPlotManager(this);
+		xYPlotManager.initialize();
+		pdmSession = new PdmSession(this);
+		pdmSession.initialize();
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_Session_force_load")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern void SessionForceLoad();
+
+	public static Session GetSession()
+	{
+        SessionForceLoad();
+        BaseSession.StaticInitialize();
+        var theSession = NXObjectManager.Get<Session>(JAM.GetSingletonTag("Session"));
+        return theSession;
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_set_undo_mark")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_set_undo_mark(MarkVisibility markVisibility, IntPtr name, out UndoMarkId markId);
+
+	/// <summary>  Creates an undo mark   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="markVisibility"> </param>  
+	/// <param name="name"> mark name  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <returns> mark ID </returns> 
+	public UndoMarkId SetUndoMark(MarkVisibility markVisibility, string name)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(name);
+		UndoMarkId markId;
+		int num = JA_SESSION_set_undo_mark(markVisibility, intPtr, out markId);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return markId;
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_undo_to_last_visible_mark")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_undo_to_last_visible_mark();
+
+	/// <summary>  Undo to last visible mark. </summary>  
+	///  <remarks>  This will not delete the undo mark. Use  
+	///         <see cref="M:NXOpen.Session.UndoLastNVisibleMarks(System.Int32,System.Boolean@,System.Boolean@)"> UndoLastNVisibleMarks </see> to delete the undo mark also. <para>License requirements: None.</para> </remarks>  
+	public void UndoToLastVisibleMark()
+	{
+		JAM.StartCall();
+		int num = JA_SESSION_undo_to_last_visible_mark();
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_undo_last_n_visible_marks")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_undo_last_n_visible_marks(int n, [MarshalAs(UnmanagedType.U1)] out bool marksRecycled, [MarshalAs(UnmanagedType.U1)] out bool undoUnavailable);
+
+	/// <summary>  Undo to a specified number of visible marks starting with the most 
+	///         recently created visible mark. </summary>  
+	///  <remarks>   If the number is less than 1, then 
+	///         all visible marks are undone.  If the number is greater than the 
+	///         total number of visible marks, then all visible marks will be undone. 
+	///         Marks undone via this routine may be redone via <see cref="M:NXOpen.Session.Redo"> Redo </see> 
+	///         if the operations undone permit it. <para>License requirements: None.</para> </remarks>  
+	///  <param name="n"> Number of visible marks to undo </param>  
+	/// <param name="marksRecycled"> True if undo succeeded but no marks remain. This may indicate previous marks have been recycled. </param>  
+	/// <param name="undoUnavailable"> True if not all requested marks were undone and the application has locked the undo system. </param> 
+	public void UndoLastNVisibleMarks(int n, out bool marksRecycled, out bool undoUnavailable)
+	{
+		JAM.StartCall();
+		int num = JA_SESSION_undo_last_n_visible_marks(n, out marksRecycled, out undoUnavailable);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_redo")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_redo();
+
+	/// <summary>  Redo the last undo if possible. </summary>  
+	///  <remarks>  Only does one mark but may be repeated 
+	///         for all redoable marks. Only marks undone by <see cref="M:NXOpen.Session.UndoLastNVisibleMarks(System.Int32,System.Boolean@,System.Boolean@)"> UndoLastNVisibleMarks </see> 
+	///         are redoable. <para>License requirements: None.</para> </remarks>  
+	public void Redo()
+	{
+		JAM.StartCall();
+		int num = JA_SESSION_redo();
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_undo_to_mark")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_undo_to_mark(UndoMarkId markId, IntPtr markName);
+
+	/// <summary>  Undo to the specified mark  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="markId"> ID of mark to undo to </param>  
+	/// <param name="markName"> Name of mark to undo to.  Used only if mark_id not found  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param> 
+	public void UndoToMark(UndoMarkId markId, string markName)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(markName);
+		int num = JA_SESSION_undo_to_mark(markId, intPtr);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_undo_to_mark_with_status")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_undo_to_mark_with_status(UndoMarkId markId, IntPtr markName);
+
+	/// <summary>  Undo to the specified mark and output status to status bar. </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="markId"> ID of mark to undo to </param>  
+	/// <param name="markName"> Name of mark to undo to.  Used only if mark_id not found  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param> 
+	public void UndoToMarkWithStatus(UndoMarkId markId, string markName)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(markName);
+		int num = JA_SESSION_undo_to_mark_with_status(markId, intPtr);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_delete_undo_mark")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_delete_undo_mark(UndoMarkId markId, IntPtr markName);
+
+	/// <summary>  Deletes an undo mark. </summary>  
+	///  <remarks>   If you want to delete a mark and all marks that were created after that 
+	///     mark, use <see cref="M:NXOpen.Session.DeleteUndoMarksUpToMark(NXOpen.Session.UndoMarkId,System.String,System.Boolean)"> DeleteUndoMarksUpToMark </see> instead. <para>License requirements: None.</para> </remarks>  
+	///  <param name="markId"> ID of mark </param>  
+	/// <param name="markName"> Name of mark.  Used only if mark_id not found  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param> 
+	public void DeleteUndoMark(UndoMarkId markId, string markName)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(markName);
+		int num = JA_SESSION_delete_undo_mark(markId, intPtr);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_delete_undo_marks_up_to_mark")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_delete_undo_marks_up_to_mark(UndoMarkId markId, IntPtr markName, bool deleteAllIfNotFound);
+
+	/// <summary>  Deletes all undo marks up to and including the specified mark. </summary>  
+	///  <remarks>  
+	///     If you only want to delete a mark, but do not want to delete the marks that were created after  
+	///     that mark, use <see cref="M:NXOpen.Session.DeleteUndoMark(NXOpen.Session.UndoMarkId,System.String)"> DeleteUndoMark </see> instead.  <para>License requirements: None.</para> </remarks>  
+	///  <param name="markId"> ID of mark </param>  
+	/// <param name="markName"> Name of mark.  Used only if mark_id not found  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <param name="deleteAllIfNotFound"> Whether to delete all marks if the specified mark is not found </param> 
+	public void DeleteUndoMarksUpToMark(UndoMarkId markId, string markName, bool deleteAllIfNotFound)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(markName);
+		int num = JA_SESSION_delete_undo_marks_up_to_mark(markId, intPtr, deleteAllIfNotFound);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_delete_all_undo_marks")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_delete_all_undo_marks();
+
+	/// <summary>  Deletes all undo marks  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	public void DeleteAllUndoMarks()
+	{
+		JAM.StartCall();
+		int num = JA_SESSION_delete_all_undo_marks();
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_set_undo_mark_visibility")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_set_undo_mark_visibility(UndoMarkId markId, IntPtr markName, MarkVisibility visibility);
+
+	/// <summary>  Sets the visibility of the specified undo mark  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="markId"> ID of mark </param>  
+	/// <param name="markName"> Name of the mark.  Used only if mark_id not found  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <param name="visibility"> the new visibility </param> 
+	public void SetUndoMarkVisibility(UndoMarkId markId, string markName, MarkVisibility visibility)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(markName);
+		int num = JA_SESSION_set_undo_mark_visibility(markId, intPtr, visibility);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_undo_mark_visibility")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_undo_mark_visibility(UndoMarkId markId, IntPtr markName, out MarkVisibility visibility);
+
+	/// <summary>  Returns the visibility of the specified undo mark   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="markId"> ID of mark </param>  
+	/// <param name="markName"> Name of the mark.  Used only if mark_id not found  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <returns> visibility of the mark </returns> 
+	public MarkVisibility GetUndoMarkVisibility(UndoMarkId markId, string markName)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(markName);
+		MarkVisibility visibility;
+		int num = JA_SESSION_get_undo_mark_visibility(markId, intPtr, out visibility);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return visibility;
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_undo_mark_name")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_undo_mark_name(UndoMarkId markId, out IntPtr markName);
+
+	/// <summary>  Returns the name of the specified undo mark   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="markId"> ID of the mark </param>  
+	/// <returns> the mark's name </returns> 
+	public string GetUndoMarkName(UndoMarkId markId)
+	{
+		JAM.StartCall();
+		IntPtr markName;
+		int num = JA_SESSION_get_undo_mark_name(markId, out markName);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return JAM.ToStringFromLocale(markName);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_set_undo_mark_name")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_set_undo_mark_name(UndoMarkId markId, IntPtr markName);
+
+	/// <summary>  Sets the name of the undo mark  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="markId"> ID of the mark </param>  
+	/// <param name="markName"> Name of the mark.  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param> 
+	public void SetUndoMarkName(UndoMarkId markId, string markName)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(markName);
+		int num = JA_SESSION_set_undo_mark_name(markId, intPtr);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_does_undo_mark_exist")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_does_undo_mark_exist(UndoMarkId markId, IntPtr markName, [MarshalAs(UnmanagedType.U1)] out bool exists);
+
+	/// <summary>  Returns true if the specified mark exists   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="markId"> ID of mark </param>  
+	/// <param name="markName"> Name of the mark.  Used only if mark_id not found  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <returns> True if and only if the mark exists </returns> 
+	public bool DoesUndoMarkExist(UndoMarkId markId, string markName)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(markName);
+		bool exists;
+		int num = JA_SESSION_does_undo_mark_exist(markId, intPtr, out exists);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return exists;
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_all_undo_marks")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_all_undo_marks(MarkVisibility visibility, out int nMarkData, out IntPtr markData);
+
+	/// <summary>  Returns a list of all the undo marks with the specified visibility   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="visibility"> Used to limit the results to marks with the specified visibility </param>  
+	/// <returns> List of the undo marks </returns> 
+	public UndoMarkData[] GetAllUndoMarks(MarkVisibility visibility)
+	{
+		JAM.StartCall();
+		IntPtr markData = IntPtr.Zero;
+		int nMarkData;
+		int num = JA_SESSION_get_all_undo_marks(visibility, out nMarkData, out markData);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		UndoMarkData[] array = new UndoMarkData[nMarkData];
+		IntPtr intPtr = markData;
+		long num2 = Marshal.SizeOf<UndoMarkData>();
+		for (int i = 0; i < array.Length; i++)
+		{
+			ref UndoMarkData reference = ref array[i];
+			reference = Marshal.PtrToStructure<UndoMarkData>(intPtr);
+			intPtr = (IntPtr)((long)intPtr + num2);
+		}
+		JAM.SMFree(markData);
+		return array;
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_newest_undo_mark")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_newest_undo_mark(MarkVisibility visibility, out UndoMarkId id);
+
+	/// <summary>  Returns the newest undo mark with the specified visibility   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="visibility"> the visibility mask </param>  
+	/// <returns> ID of the next undo mark. 
+	///                                                This will be zero if there are no undo marks </returns> 
+	public UndoMarkId GetNewestUndoMark(MarkVisibility visibility)
+	{
+		JAM.StartCall();
+		UndoMarkId id;
+		int num = JA_SESSION_get_newest_undo_mark(visibility, out id);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return id;
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_begin_task_environment")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_begin_task_environment();
+
+	/// <summary>  This method is called by the NX user interface before 
+	///     entering a task environment. </summary>  
+	///  <remarks>   This method will make invisible all the undo  
+	///     marks that currently exist. 
+	///     The reason for doing this is so that the user sees only the undo marks 
+	///     created in the task environment. 
+	///     The method <see cref="M:NXOpen.Session.EndTaskEnvironment"> Session.EndTaskEnvironment </see> 
+	///     will restore the marks to the visibility that they had before this 
+	///     method was called.  
+	///     This method should not be called if NX is already in a task environment. 
+	///     <para>License requirements: None.</para> </remarks>  
+	public void BeginTaskEnvironment()
+	{
+		JAM.StartCall();
+		int num = JA_SESSION_begin_task_environment();
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_delete_undo_marks_set_in_task_environment")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_delete_undo_marks_set_in_task_environment();
+
+	/// <summary>  This method deletes all the undo marks that have been created since 
+	///     entering the task environment via  
+	///     <see cref="M:NXOpen.Session.BeginTaskEnvironment"> Session.BeginTaskEnvironment </see>. </summary>  
+	///  <remarks>    
+	///     An exception will be thrown if this method is called 
+	///     when NX is not in a task environment.  <para>License requirements: None.</para> </remarks>  
+	public void DeleteUndoMarksSetInTaskEnvironment()
+	{
+		JAM.StartCall();
+		int num = JA_SESSION_delete_undo_marks_set_in_task_environment();
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_end_task_environment")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_end_task_environment();
+
+	/// <summary>  This method is called by the NX user interface when leaving 
+	///     a task environment. </summary>  
+	///  <remarks>   This method will make visible all the undo marks that 
+	///     were made invisible by <see cref="M:NXOpen.Session.BeginTaskEnvironment"> Session.BeginTaskEnvironment </see>. 
+	///     An exception will be thrown if this method is called 
+	///     when NX is not in a task environment.   
+	///     <para>License requirements: None.</para> </remarks>  
+	public void EndTaskEnvironment()
+	{
+		JAM.StartCall();
+		int num = JA_SESSION_end_task_environment();
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_new_part_cleanup")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_new_part_cleanup(out IntPtr data);
+
+	/// <summary>  Constructs a new PartCleanup object. </summary>  
+	///  <remarks>   <para>License requirements: None.</para> </remarks>  
+	///  <returns> </returns> 
+	public PartCleanup NewPartCleanup()
+	{
+		JAM.StartCall();
+		IntPtr data;
+		int num = JA_SESSION_new_part_cleanup(out data);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return new PartCleanup(data);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_new_error_list")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_new_error_list(out IntPtr errorList);
+
+	/// <summary>  Creates a new error list. </summary>  
+	///  <remarks>  
+	///     Warning: this method may be removed in a future release  <para>License requirements: None.</para> </remarks>  
+	///  <returns> </returns> 
+	public ErrorList NewErrorList()
+	{
+		JAM.StartCall();
+		IntPtr errorList;
+		int num = JA_SESSION_new_error_list(out errorList);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return new ErrorList(errorList);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_new_database_session_options")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_new_database_session_options(out IntPtr sessionOptions);
+
+	/// <summary>  Creates a new database session option controller   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <returns> </returns> 
+	public SessionSettings NewDatabaseSessionOptions()
+	{
+		JAM.StartCall();
+		IntPtr sessionOptions;
+		int num = JA_SESSION_new_database_session_options(out sessionOptions);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return new SessionSettings(sessionOptions);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_new_database_persistent_options")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_new_database_persistent_options(out IntPtr persistentOptions);
+
+	/// <summary>  Creates a new database persistent option controller   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <returns> </returns> 
+	public PersistentSettings NewDatabasePersistentOptions()
+	{
+		JAM.StartCall();
+		IntPtr persistentOptions;
+		int num = JA_SESSION_new_database_persistent_options(out persistentOptions);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return new PersistentSettings(persistentOptions);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_execute_grip")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_execute_grip(IntPtr gripExecutable, int count, JAM.Variant[] inputArgs, out IntPtr outputArgs);
+
+	/// <summary>  Call a grip subroutine   </summary>  
+	///  <remarks> <para>License requirements: grip_execute ("GRIP EXECUTE")</para> </remarks>  
+	///  <param name="gripExecutable"> Name of Grip executable to run  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <param name="inputArgs"> Input arguments for Grip subroutine </param>  
+	/// <returns> Output arguments for Grip subroutine </returns> 
+	public object[] ExecuteGrip(string gripExecutable, object[] inputArgs)
+	{
+		JAM.StartCall("grip_execute");
+		IntPtr intPtr = JAM.ToLocaleString(gripExecutable);
+		JAM.Variant[] array = JAM.ToVariantArray(inputArgs);
+		IntPtr outputArgs = IntPtr.Zero;
+		int num = JA_SESSION_execute_grip(intPtr, inputArgs.Length, array, out outputArgs);
+		JAM.FreeLocaleString(intPtr);
+		JAM.FreeVariantArray(array);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return JAM.ToObjectArray(inputArgs.Length, outputArgs);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_execute")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_execute(IntPtr libName, IntPtr className, IntPtr methodName, int count, JAM.Variant[] inputArgs, out JAM.Variant result);
+
+	/// <summary>  Invokes a method in a managed library. </summary>  
+	///  <remarks>  Currently supported library types 
+	///         include a Java jar or class file, or a Common Language Runtime (.NET) dll.  <para>License requirements: None.</para> </remarks>  
+	///  <param name="libName"> Name of the library containing the method.  The full path to the library is required.  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <param name="className"> Name of the class  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <param name="methodName"> Name of the method to invoke  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <param name="inputArgs"> Input arguments for .NET method </param>  
+	/// <returns> Return argument for .NET method </returns> 
+	public object Execute(string libName, string className, string methodName, object[] inputArgs)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(libName);
+		IntPtr intPtr2 = JAM.ToLocaleString(className);
+		IntPtr intPtr3 = JAM.ToLocaleString(methodName);
+		JAM.Variant[] array = JAM.ToVariantArray(inputArgs);
+		JAM.Variant result;
+		int num = JA_SESSION_execute(intPtr, intPtr2, intPtr3, inputArgs.Length, array, out result);
+		JAM.FreeLocaleString(intPtr);
+		JAM.FreeLocaleString(intPtr2);
+		JAM.FreeLocaleString(intPtr3);
+		JAM.FreeVariantArray(array);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return JAM.ToObject(result);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_create_cam_session")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_create_cam_session();
+
+	/// <summary>  Create the CAM session  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	public void CreateCamSession()
+	{
+		JAM.StartCall();
+		int num = JA_SESSION_create_cam_session();
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_is_cam_session_initialized")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_is_cam_session_initialized([MarshalAs(UnmanagedType.U1)] out bool result);
+
+	/// <summary>  Check if the CAM session is initialized   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <returns> </returns> 
+	public bool IsCamSessionInitialized()
+	{
+		JAM.StartCall();
+		bool result;
+		int num = JA_SESSION_is_cam_session_initialized(out result);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return result;
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_create_inspection_session")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_create_inspection_session();
+
+	/// <summary>  Create the Inspection session  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	public void CreateInspectionSession()
+	{
+		JAM.StartCall();
+		int num = JA_SESSION_create_inspection_session();
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_is_inspection_session_initialized")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_is_inspection_session_initialized([MarshalAs(UnmanagedType.U1)] out bool result);
+
+	/// <summary>  Check if the Inspection session is initialized   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <returns> </returns> 
+	public bool IsInspectionSessionInitialized()
+	{
+		JAM.StartCall();
+		bool result;
+		int num = JA_SESSION_is_inspection_session_initialized(out result);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return result;
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_property")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_property(Tag @object, IntPtr propertyName, out IntPtr value);
+
+	/// <summary>  Gets a named property of the object. </summary>  
+	///  <remarks>  The property names are based upon the  
+	///         properties provided by the NXOpen API.  
+	///       <para>License requirements: None.</para> </remarks>  
+	///  <param name="object"> The object to query </param>  
+	/// <param name="propertyName"> The name of the property  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <returns> The value of the property, expressed as a string </returns> 
+	public string GetProperty(TaggedObject @object, string propertyName)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(propertyName);
+		IntPtr value;
+		int num = JA_SESSION_get_property(@object?.Tag ?? Tag.Null, intPtr, out value);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return JAM.ToStringFromText(value);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_set_property")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_set_property(Tag @object, IntPtr propertyName, IntPtr value);
+
+	/// <summary>  Sets a named property of the object. </summary>  
+	///  <remarks>  The property names are based upon the  
+	///         properties provided by the NXOpen API.  
+	///      <para>License requirements: None.</para> </remarks>  
+	///  <param name="object"> The object to query </param>  
+	/// <param name="propertyName"> The name of the property  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <param name="value"> The value of the property, expressed as a string </param> 
+	public void SetProperty(TaggedObject @object, string propertyName, string value)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(propertyName);
+		IntPtr intPtr2 = JAM.ToText(value);
+		int num = JA_SESSION_set_property(@object?.Tag ?? Tag.Null, intPtr, intPtr2);
+		JAM.FreeLocaleString(intPtr);
+		JAM.TextFree(intPtr2);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "X37JA_SESSION_get_named_properties")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_named_properties(Tag @object, out int nProperties, out IntPtr properties);
+
+	/// <summary>  Gets a list of the named properties of this object   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="object"> The object to query </param>  
+	/// <returns> array of property names </returns> 
+	public string[] GetNamedProperties(TaggedObject @object)
+	{
+		JAM.StartCall();
+		IntPtr properties = IntPtr.Zero;
+		int nProperties;
+		int num = JA_SESSION_get_named_properties(@object?.Tag ?? Tag.Null, out nProperties, out properties);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return JAM.ToStringArrayFromLocale(nProperties, properties);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_classes")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_classes(out int nClasses, out IntPtr classes);
+
+	/// <summary>  Gets a list of the classes defined in the current session   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <returns> array of class names </returns> 
+	public string[] GetClasses()
+	{
+		JAM.StartCall();
+		IntPtr classes = IntPtr.Zero;
+		int nClasses;
+		int num = JA_SESSION_get_classes(out nClasses, out classes);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return JAM.ToStringArrayFromLocale(nClasses, classes);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "X39JA_SESSION_get_named_properties")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_named_properties(IntPtr className, out int nProperties, out IntPtr properties, out IntPtr propertyTypes);
+
+	/// <summary>  Gets a list of the named properties of a named class  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="className"> The name of the class to query  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <param name="properties"> array of property names </param>  
+	/// <param name="propertyTypes"> type name of corresponding property </param> 
+	public void GetNamedProperties(string className, out string[] properties, out string[] propertyTypes)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(className);
+		IntPtr properties2 = IntPtr.Zero;
+		IntPtr propertyTypes2 = IntPtr.Zero;
+		int nProperties;
+		int num = JA_SESSION_get_named_properties(intPtr, out nProperties, out properties2, out propertyTypes2);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		properties = JAM.ToStringArrayFromLocale(nProperties, properties2);
+		propertyTypes = JAM.ToStringArrayFromLocale(nProperties, propertyTypes2);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_clean_up_faceted_faces_and_edges")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_clean_up_faceted_faces_and_edges();
+
+	/// <summary>  Deletes all <see cref="T:NXOpen.Facet.FacetedFace"> Facet.FacetedFace </see> and <see cref="T:NXOpen.Facet.FacetedEdge"> Facet.FacetedEdge </see> objects  
+	///         in the current session  </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	public void CleanUpFacetedFacesAndEdges()
+	{
+		JAM.StartCall();
+		int num = JA_SESSION_clean_up_faceted_faces_and_edges();
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_assign_remove_projects")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_assign_remove_projects(int nObjects, IntPtr[] cliNames, ProjectAssignmentObjectType[] objectTypes, int nProjects, IntPtr[] projectNames, ProjectAssignmentState[] assignmentStates);
+
+	/// <summary>   Assign or remove projects to/from objects </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="cliNames"> cli names of the objects to assign projects to   <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <param name="objectTypes"> one of item, item rev or dataset type </param>  
+	/// <param name="projectNames"> names of the projects to assign  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <param name="assignmentStates"> assignment states </param> 
+	public void AssignRemoveProjects(string[] cliNames, ProjectAssignmentObjectType[] objectTypes, string[] projectNames, ProjectAssignmentState[] assignmentStates)
+	{
+		JAM.StartCall();
+		IntPtr[] array = JAM.ToLocaleStringArray(cliNames);
+		IntPtr[] array2 = JAM.ToLocaleStringArray(projectNames);
+		int num = JA_SESSION_assign_remove_projects(cliNames.Length, array, objectTypes, projectNames.Length, array2, assignmentStates);
+		JAM.FreeLocaleStringArray(array);
+		JAM.FreeLocaleStringArray(array2);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_environment_variable_value")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_environment_variable_value(IntPtr envVaribable, out IntPtr envValue);
+
+	/// <summary>  Returns the value of a NX enviroment variable    </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="envVaribable"> the environment variable name, which may be case sensitive on some platforms  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <returns> the value assigned to this environment variable </returns> 
+	public string GetEnvironmentVariableValue(string envVaribable)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(envVaribable);
+		IntPtr envValue;
+		int num = JA_SESSION_get_environment_variable_value(intPtr, out envValue);
+		JAM.FreeLocaleString(intPtr);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return JAM.ToStringFromLocale(envValue);
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_set_environment_variable_value")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_set_environment_variable_value(IntPtr envVaribable, IntPtr envValue);
+
+	/// <summary>  sets the value of a NX enviroment variable   </summary>  
+	///  <remarks> <para>License requirements: None.</para> </remarks>  
+	///  <param name="envVaribable"> the environment variable name, which may be case sensitive on some platforms  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param>  
+	/// <param name="envValue"> the value to be assigned to this environment variable  <para> NOTE: The full Unicode character set is not supported for this parameter. </para></param> 
+	public void SetEnvironmentVariableValue(string envVaribable, string envValue)
+	{
+		JAM.StartCall();
+		IntPtr intPtr = JAM.ToLocaleString(envVaribable);
+		IntPtr intPtr2 = JAM.ToLocaleString(envValue);
+		int num = JA_SESSION_set_environment_variable_value(intPtr, intPtr2);
+		JAM.FreeLocaleString(intPtr);
+		JAM.FreeLocaleString(intPtr2);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_enable_redo")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_enable_redo(bool enableRedo, [MarshalAs(UnmanagedType.U1)] out bool previousRedoState);
+
+	/// <summary>   Enable redo for NXOpen programs. </summary>  
+	///  <remarks>  As default redo is enabled in NX. 
+	///          One can disable redo to save memory for memory intensive NX Open programs. After the NX Open program is executed 
+	///          redo will be restored back to enabled state. 
+	///          In case redo is enabled from previous disbaled state , it must be done just before setting a undo mark. 
+	///      <para>License requirements: None.</para> </remarks>  
+	///  <param name="enableRedo">True will enable redo for NXOpen programs. False should disable the redo for NXOpen programs</param>  
+	/// <returns> Returns previous redo state</returns> 
+	public bool EnableRedo(bool enableRedo)
+	{
+		JAM.StartCall();
+		bool previousRedoState;
+		int num = JA_SESSION_enable_redo(enableRedo, out previousRedoState);
+		if (num != 0)
+		{
+			throw NXException.Create(num);
+		}
+		return previousRedoState;
+	}
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_active_sketch")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_active_sketch(out Tag sketch);
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_executing_journal")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_executing_journal(out IntPtr journal);
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_is_in_task_environment")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_is_in_task_environment([MarshalAs(UnmanagedType.U1)] out bool inTaskEnv);
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_newest_visible_undo_mark")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_newest_visible_undo_mark(out UndoMarkId id);
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_get_transient_part_persistence_policy")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_get_transient_part_persistence_policy(out TransientPartPolicy policy);
+
+	[DllImport("libpart", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi, EntryPoint = "XJA_SESSION_set_transient_part_persistence_policy")]
+	[SuppressUnmanagedCodeSecurity]
+	private static extern int JA_SESSION_set_transient_part_persistence_policy(TransientPartPolicy policy);
+}
